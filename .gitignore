@@ -1,0 +1,52 @@
+# Environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+recoverx.db
+backend/recoverx.db
+
+# Storage & uploads
+storage/documents/*
+!storage/documents/.gitkeep
+backend/storage/documents/*
+!backend/storage/documents/.gitkeep
+
+# Node & Frontend build
+node_modules/
+dist/
+frontend/dist/
+.npm
+.eslintcache
+
+# Secrets, certificates, and private keys
+secrets/
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# OS files
+.DS_Store
+Thumbs.db

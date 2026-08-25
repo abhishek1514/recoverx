@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Managed PostgreSQL Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: recoverx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-recoverx_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recoverx_secure_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-recoverx}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recoverx_user} -d ${POSTGRES_DB:-recoverx}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # RecoverX FastAPI API Service
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: recoverx-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=staging
+      - DATABASE_URL=postgresql://recoverx_user:recoverx_secure_pass@postgres:5432/recoverx
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - JWT_SECRET=${JWT_SECRET:-recoverx_staging_jwt_secret_32_bytes_min}
+      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+      - WEBHOOK_TOLERANCE_SECONDS=${WEBHOOK_TOLERANCE_SECONDS:-300}
+      - PORT=8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - doc_storage:/app/storage/documents
+
+  # RecoverX Dedicated Background Worker Service
+  backend-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: recoverx-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.worker"]
+    environment:
+      - ENVIRONMENT=staging
+      - DATABASE_URL=postgresql://recoverx_user:recoverx_secure_pass@postgres:5432/recoverx
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - JWT_SECRET=${JWT_SECRET:-recoverx_staging_jwt_secret_32_bytes_min}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - doc_storage:/app/storage/documents
+
+volumes:
+  postgres_data:
+  doc_storage:
+

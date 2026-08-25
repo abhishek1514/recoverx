@@ -1,0 +1,84 @@
+# =========================================================================
+# Render Blueprint Specification for RecoverX Production Deployment
+#
+# IMPORTANT SECURITY RULE:
+# Secrets (API keys, secrets, private keys) are NEVER hardcoded in this file.
+# Secrets must be entered securely via the Render Dashboard environment settings.
+# =========================================================================
+
+services:
+  # 1. RecoverX FastAPI Web Service (API & Ingestion)
+  - type: web
+    name: recoverx-api
+    runtime: python
+    region: oregon
+    plan: standard
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/live
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: recoverx-postgres
+          property: connectionString
+      - key: RAZORPAY_KEY_ID
+        sync: false # Set in Render Dashboard: rzp_test_...
+      - key: RAZORPAY_KEY_SECRET
+        sync: false # Set in Render Dashboard
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false # Set in Render Dashboard
+      - key: OPENAI_API_KEY
+        sync: false # Set in Render Dashboard (Optional)
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: JWT_SECRET
+        generateValue: true # Render automatically generates a cryptographically secure 256-bit string
+      - key: CORS_ORIGINS
+        sync: false # Set in Render Dashboard to your Vercel URL (e.g. https://recoverx.vercel.app)
+      - key: WEBHOOK_TOLERANCE_SECONDS
+        value: "300"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: HIGH_VALUE_THRESHOLD_INR
+        value: "100000"
+      - key: HIGH_VALUE_THRESHOLD_USD
+        value: "10000"
+
+  # 2. RecoverX Dedicated Background Worker Service
+  - type: worker
+    name: recoverx-worker
+    runtime: python
+    region: oregon
+    plan: standard
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.worker
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: recoverx-postgres
+          property: connectionString
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+
+# 3. Managed PostgreSQL Database
+databases:
+  - name: recoverx-postgres
+    region: oregon
+    plan: standard
+    databaseName: recoverx
+    user: recoverx_admin
+
