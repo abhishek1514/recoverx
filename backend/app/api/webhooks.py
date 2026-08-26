@@ -9,10 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.dependencies import get_current_merchant
 from app.database.session import get_db
 from app.models.audit_log import AuditLog
+from app.models.merchant import Merchant
+from app.models.recovery_case import RecoveryCase
 from app.models.webhook_event import WebhookEvent
 from app.services.razorpay_service import RazorpayService
+from app.services.webhook_recovery_service import WebhookRecoveryService
 from app.workers.durable_queue import webhook_queue
 from app.workers.tasks import process_razorpay_webhook
 
@@ -120,3 +124,74 @@ async def razorpay_webhook_test(
         background_tasks=background_tasks,
         db=db,
     )
+
+
+# =========================================================================
+# Webhook / Payment-State Recovery Endpoints
+# =========================================================================
+@router.post("/recovery/{transaction_id}/sync", status_code=status.HTTP_200_OK)
+def resync_transaction_payment_state(
+    transaction_id: int,
+    current_merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Deterministically synchronize transaction payment state with authoritative Razorpay API."""
+    recovery_service = WebhookRecoveryService()
+    return recovery_service.resync_payment_state(
+        transaction_id=transaction_id,
+        merchant_id=current_merchant.id,
+        db=db,
+    )
+
+
+@router.post("/recovery/detect", status_code=status.HTTP_200_OK)
+def trigger_unresolved_mismatch_detection(
+    current_merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Scan and detect payment-state mismatches for unresolved transactions."""
+    recovery_service = WebhookRecoveryService()
+    detected_cases = recovery_service.scan_and_detect_unresolved(
+        merchant_id=current_merchant.id,
+        db=db,
+    )
+    return {
+        "status": "scan_completed",
+        "merchant_id": current_merchant.id,
+        "cases_detected_count": len(detected_cases),
+        "case_ids": [c.id for c in detected_cases],
+    }
+
+
+@router.get("/recovery/mismatches", status_code=status.HTTP_200_OK)
+def list_webhook_payment_state_exceptions(
+    current_merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List open webhook / payment-state exception recovery cases for the authenticated merchant."""
+    cases = list(
+        db.scalars(
+            select(RecoveryCase)
+            .where(
+                RecoveryCase.merchant_id == current_merchant.id,
+                RecoveryCase.exception_type == "webhook_payment_state_exception",
+            )
+            .order_by(RecoveryCase.id.desc())
+        ).all()
+    )
+
+    results = []
+    for c in cases:
+        results.append({
+            "case_id": c.id,
+            "transaction_id": c.transaction_id,
+            "customer_id": c.customer_id,
+            "status": c.status,
+            "stage": c.stage,
+            "amount_at_risk": str(c.amount_at_risk) if c.amount_at_risk is not None else "0.00",
+            "priority": c.priority,
+            "next_best_action": c.next_best_action,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        })
+    return results

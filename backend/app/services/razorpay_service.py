@@ -44,6 +44,10 @@ class RazorpayService:
                 detail="Only Razorpay Test Mode credentials (rzp_test_...) are permitted in this application.",
             )
 
+    def _get_auth_tuple(self) -> tuple[str, str]:
+        self.validate_test_mode_configuration()
+        return (self.settings.razorpay_key_id.strip(), self.settings.razorpay_key_secret.strip())
+
     def create_order(
         self,
         amount: Decimal,
@@ -73,96 +77,256 @@ class RazorpayService:
         key_id = self.settings.razorpay_key_id.strip()
         key_secret = self.settings.razorpay_key_secret.strip()
 
-        order_payload = {
+        payload = {
             "amount": amount_subunits,
             "currency": currency_upper,
             "receipt": receipt_id,
-            "notes": notes or {
-                "source": "RecoverX",
-                "environment": "test",
-            },
+            "notes": notes or {"created_by": "RecoverX Platform"},
         }
 
         try:
-            with httpx.Client(auth=(key_id, key_secret), timeout=10.0) as client:
-                resp = client.post(
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(
                     "https://api.razorpay.com/v1/orders",
-                    json=order_payload,
+                    auth=(key_id, key_secret),
+                    json=payload,
                 )
-        except Exception as exc:
-            logger.error("Failed to connect to Razorpay Orders API: %s", exc)
+                if response.status_code == 401:
+                    logger.error("Razorpay API order creation failed (HTTP 401): Authentication failed")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Authentication failed. Verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
+                    )
+                if response.status_code != 200 and response.status_code != 201:
+                    logger.error(
+                        "Razorpay API order creation failed (HTTP %s): %s",
+                        response.status_code,
+                        response.text,
+                    )
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    error_desc = error_data.get("error", {}).get("description", "Razorpay order creation failed.")
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Razorpay Orders API error: {error_desc}",
+                    )
+
+                order_data = response.json()
+                logger.info("Created Razorpay order %s", order_data.get("id"))
+                return {
+                    "order_id": order_data.get("id"),
+                    "amount": str(amount),
+                    "currency": currency_upper,
+                    "key_id": key_id,
+                    "amount_subunits": amount_subunits,
+                    "receipt": receipt_id,
+                    "status": order_data.get("status", "created"),
+                    "raw_order": order_data,
+                }
+        except httpx.RequestError as exc:
+            logger.error("Network error communicating with Razorpay Orders API: %s", exc)
             raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail=f"Failed to connect to Razorpay Orders API: {str(exc)}",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not reach Razorpay Orders API. Check network connectivity.",
             ) from exc
 
-        if resp.status_code not in {200, 201}:
-            try:
-                err_data = resp.json()
-                err_desc = (
-                    err_data.get("error", {}).get("description")
-                    or err_data.get("error", {}).get("code")
-                    or resp.text
-                )
-            except Exception:
-                err_desc = resp.text
-
-            logger.error(
-                "Razorpay API order creation failed (HTTP %s): %s",
-                resp.status_code,
-                err_desc,
-            )
-            status_code = (
-                resp.status_code
-                if resp.status_code in {400, 401, 403, 422}
-                else status.HTTP_502_BAD_GATEWAY
-            )
+    # =========================================================================
+    # Razorpay Payment & Order Fetch API Client
+    # =========================================================================
+    def fetch_payment(self, payment_id: str) -> dict[str, Any]:
+        """Fetch authoritative payment entity via official Razorpay Payments API (GET /v1/payments/{id})."""
+        auth = self._get_auth_tuple()
+        clean_id = payment_id.strip()
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(f"https://api.razorpay.com/v1/payments/{clean_id}", auth=auth)
+                if response.status_code == 404:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Payment {clean_id} not found on Razorpay.",
+                    )
+                if response.status_code != 200:
+                    logger.error("Razorpay fetch_payment failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Razorpay API error fetching payment {clean_id}.",
+                    )
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching payment from Razorpay: %s", exc)
             raise HTTPException(
-                status_code=status_code,
-                detail=f"Razorpay order creation failed: {err_desc}",
-            )
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not reach Razorpay Payments API.",
+            ) from exc
 
-        order_data = resp.json()
-        real_order_id = str(order_data["id"])
-        logger.info("Created Razorpay order %s", real_order_id)
+    def fetch_order(self, order_id: str) -> dict[str, Any]:
+        """Fetch authoritative order entity via official Razorpay Orders API (GET /v1/orders/{id})."""
+        auth = self._get_auth_tuple()
+        clean_id = order_id.strip()
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(f"https://api.razorpay.com/v1/orders/{clean_id}", auth=auth)
+                if response.status_code == 404:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Order {clean_id} not found on Razorpay.",
+                    )
+                if response.status_code != 200:
+                    logger.error("Razorpay fetch_order failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Razorpay API error fetching order {clean_id}.",
+                    )
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching order from Razorpay: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not reach Razorpay Orders API.",
+            ) from exc
 
-        return {
-            "order_id": real_order_id,
-            "amount": amount,
-            "currency": currency_upper,
-            "key_id": key_id,
-            "amount_subunits": amount_subunits,
-            "receipt": receipt_id,
-            "status": str(order_data.get("status", "created")),
+    # =========================================================================
+    # Razorpay Dispute API Client
+    # =========================================================================
+    def get_dispute(self, dispute_id: str) -> dict[str, Any]:
+        """Fetch dispute details via official Razorpay Disputes API (GET /v1/disputes/{id})."""
+        auth = self._get_auth_tuple()
+        clean_id = dispute_id.strip()
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(f"https://api.razorpay.com/v1/disputes/{clean_id}", auth=auth)
+                if response.status_code == 404:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Dispute {clean_id} not found on Razorpay.")
+                if response.status_code != 200:
+                    logger.error("Razorpay get_dispute failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Razorpay API error fetching dispute {clean_id}.")
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching dispute from Razorpay: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Razorpay Disputes API.") from exc
+
+    def contest_dispute(
+        self,
+        dispute_id: str,
+        summary: str,
+        documents: list[str] | None = None,
+        amount: int | None = None,
+        action: str = "submit",
+    ) -> dict[str, Any]:
+        """Submit contest evidence via official Razorpay Disputes API (PATCH /v1/disputes/{id}/contest)."""
+        auth = self._get_auth_tuple()
+        clean_id = dispute_id.strip()
+        payload: dict[str, Any] = {
+            "summary": summary,
+            "action": action,
+            "documents": documents or [],
         }
+        if amount is not None:
+            payload["amount"] = amount
 
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.patch(f"https://api.razorpay.com/v1/disputes/{clean_id}/contest", auth=auth, json=payload)
+                if response.status_code != 200 and response.status_code != 201:
+                    logger.error("Razorpay contest_dispute failed (HTTP %s): %s", response.status_code, response.text)
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    error_desc = error_data.get("error", {}).get("description", "Contest submission failed.")
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Razorpay Contest API error: {error_desc}")
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error contesting dispute on Razorpay: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Razorpay Contest API.") from exc
+
+    # =========================================================================
+    # Razorpay Settlement API Client
+    # =========================================================================
+    def get_settlements(
+        self,
+        from_timestamp: int | None = None,
+        to_timestamp: int | None = None,
+        count: int = 10,
+        skip: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List settlements via official Razorpay Settlements API (GET /v1/settlements)."""
+        auth = self._get_auth_tuple()
+        params: dict[str, Any] = {"count": count, "skip": skip}
+        if from_timestamp is not None:
+            params["from"] = from_timestamp
+        if to_timestamp is not None:
+            params["to"] = to_timestamp
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get("https://api.razorpay.com/v1/settlements", auth=auth, params=params)
+                if response.status_code != 200:
+                    logger.error("Razorpay get_settlements failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Razorpay Settlements API error.")
+                data = response.json()
+                return data.get("items", []) if isinstance(data, dict) else []
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching settlements from Razorpay: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Razorpay Settlements API.") from exc
+
+    def get_settlement_by_id(self, settlement_id: str) -> dict[str, Any]:
+        """Fetch settlement details via official Razorpay Settlements API (GET /v1/settlements/{id})."""
+        auth = self._get_auth_tuple()
+        clean_id = settlement_id.strip()
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(f"https://api.razorpay.com/v1/settlements/{clean_id}", auth=auth)
+                if response.status_code == 404:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Settlement {clean_id} not found on Razorpay.")
+                if response.status_code != 200:
+                    logger.error("Razorpay get_settlement_by_id failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Razorpay Settlements API error for {clean_id}.")
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching settlement from Razorpay: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Razorpay Settlements API.") from exc
+
+    def get_combined_recon_settlements(self, year: int, month: int, day: int) -> dict[str, Any]:
+        """Fetch combined reconciliation file via official Razorpay Recon API (GET /v1/settlements/recon/combined)."""
+        auth = self._get_auth_tuple()
+        params = {"year": year, "month": month, "day": day}
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.get("https://api.razorpay.com/v1/settlements/recon/combined", auth=auth, params=params)
+                if response.status_code != 200:
+                    logger.error("Razorpay recon API failed (HTTP %s): %s", response.status_code, response.text)
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="Razorpay Settlement Recon API error or feature not enabled for this account.",
+                    )
+                return response.json()
+        except httpx.RequestError as exc:
+            logger.error("Network error fetching reconciliation from Razorpay: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Razorpay Recon API.") from exc
+
+    # =========================================================================
+    # Webhook Verification & Cryptographic Utilities
+    # =========================================================================
     def verify_payment_signature(
         self,
         razorpay_order_id: str,
         razorpay_payment_id: str,
         razorpay_signature: str,
     ) -> bool:
-        """Verify the payment signature returned by Razorpay Checkout with timing-safe comparison."""
-        if not razorpay_signature or not self.settings.razorpay_key_secret:
+        """Verify the payment signature returned by Razorpay Standard Checkout modal."""
+        if not self.settings.razorpay_key_secret:
             return False
-        msg = f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8")
+        message = f"{razorpay_order_id}|{razorpay_payment_id}"
         expected = hmac.new(
             self.settings.razorpay_key_secret.encode("utf-8"),
-            msg,
+            message.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
         return constant_time_compare(expected, razorpay_signature)
 
-    def create_test_payment_signature(
-        self,
-        order_id: str,
-        payment_id: str,
-    ) -> str:
-        """Generate a valid payment signature for automated unit tests."""
-        msg = f"{order_id}|{payment_id}".encode("utf-8")
+    def create_test_payment_signature(self, razorpay_order_id: str, razorpay_payment_id: str) -> str:
+        """Used by test suites to generate valid payment signatures."""
+        message = f"{razorpay_order_id}|{razorpay_payment_id}"
         return hmac.new(
             self.settings.razorpay_key_secret.encode("utf-8"),
-            msg,
+            message.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
 
@@ -184,7 +348,7 @@ class RazorpayService:
         if self.settings.environment.lower() == "test" and tolerance_seconds is None:
             return True
 
-        tolerance = tolerance_seconds if tolerance_seconds is not None else self.settings.webhook_tolerance_seconds
+        tolerance = tolerance_seconds if tolerance_seconds is not None else int(getattr(self.settings, "webhook_tolerance_seconds", getattr(self.settings, "webhook_timestamp_tolerance_seconds", 300)))
         if tolerance <= 0:
             return True
 
@@ -207,7 +371,6 @@ class RazorpayService:
             return True
         except (ValueError, TypeError):
             return True
-
 
     def create_test_signature(self, body: bytes) -> str:
         """Used only by development test routes and webhook unit tests."""

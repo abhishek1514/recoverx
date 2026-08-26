@@ -24,6 +24,7 @@ htmlcov/
 *.sqlite3
 recoverx.db
 backend/recoverx.db
+staging_pg_data/
 
 # Storage & uploads
 storage/documents/*

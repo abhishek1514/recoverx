@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.core.security import decode_token
@@ -31,7 +31,9 @@ def get_current_user(
             user_id = payload.get("sub")
             if not user_id:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject.")
-            user = db.get(User, int(user_id))
+            user = db.scalar(
+                select(User).options(joinedload(User.merchant)).where(User.id == int(user_id))
+            )
             if not user or not user.is_active:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive.")
             return user
@@ -46,7 +48,7 @@ def get_current_user(
 
     settings = get_settings()
     if settings.environment.lower() in {"development", "test"}:
-        default_user = db.scalar(select(User).where(User.id == 1))
+        default_user = db.scalar(select(User).options(joinedload(User.merchant)).where(User.id == 1))
         if default_user is not None:
             return default_user
         default_merchant = db.scalar(select(Merchant).where(Merchant.id == 1))
@@ -88,7 +90,11 @@ def get_current_merchant(
 
 def verify_merchant_ownership(entity: Any, merchant_id: int, entity_name: str = "Resource") -> None:
     """Strictly assert that a requested entity belongs to the current merchant."""
-    entity_merchant_id = getattr(entity, "merchant_id", None)
+    if isinstance(entity, int):
+        entity_merchant_id = entity
+    else:
+        entity_merchant_id = getattr(entity, "merchant_id", None)
+
     if entity_merchant_id is not None and entity_merchant_id != merchant_id:
         logger.warning(
             "Cross-tenant access attempt rejected: merchant %s attempted to access %s owned by merchant %s",
@@ -100,4 +106,3 @@ def verify_merchant_ownership(entity: Any, merchant_id: int, entity_name: str = 
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied: {entity_name} belongs to another merchant account.",
         )
-

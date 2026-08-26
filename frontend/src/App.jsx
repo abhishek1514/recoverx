@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/common/Sidebar';
 import Dashboard from './pages/Dashboard';
+import RevenueExceptions from './pages/RevenueExceptions';
 import PaymentsList from './pages/PaymentsList';
 import NeedsAttention from './pages/NeedsAttention';
+import Disputes from './pages/Disputes';
+import Settlements from './pages/Settlements';
 import CaseDetails from './pages/CaseDetails';
 import CustomerResolution from './pages/CustomerResolution';
 import MerchantReview from './pages/MerchantReview';
@@ -20,10 +23,13 @@ export default function App() {
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <main className="main-content">
         <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/exceptions" replace />} />
+          <Route path="/exceptions" element={<RevenueExceptions />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/payments" element={<PaymentsList />} />
           <Route path="/needs-attention" element={<NeedsAttention />} />
+          <Route path="/disputes" element={<Disputes />} />
+          <Route path="/settlements" element={<Settlements />} />
           <Route path="/cases" element={<NeedsAttention />} />
           <Route path="/cases/:caseId" element={<CaseDetails />} />
           <Route path="/cases/:caseId/customer" element={<CustomerResolution />} />
@@ -32,13 +38,9 @@ export default function App() {
           <Route path="/pay" element={<PaymentCheckout />} />
           <Route path="/payments/:orderId/status" element={<PaymentStatus />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/exceptions" replace />} />
         </Routes>
       </main>
     </div>
   );
 }
-
-
-
-

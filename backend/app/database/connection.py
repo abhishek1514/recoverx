@@ -1,47 +1,61 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
+
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from app.core.config import get_settings
+from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+connect_args: dict[str, Any] = {}
+engine_kwargs: dict[str, Any] = {
+    "future": True,
+    "echo": False,
+}
+
+if settings.database_url.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+    from sqlalchemy.pool import NullPool
+    engine_kwargs["poolclass"] = NullPool
+else:
+    engine_kwargs.update({
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_pre_ping": True,
+    })
+
+engine_kwargs["connect_args"] = connect_args
+engine = create_engine(settings.database_url, **engine_kwargs)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-settings = get_settings()
-engine_options: dict = {"future": True}
-
-raw_db_url = settings.database_url
-# Render & Heroku provide postgres:// URLs; SQLAlchemy 1.4+ / 2.0 requires postgresql://
-if raw_db_url.startswith("postgres://"):
-    db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
-else:
-    db_url = raw_db_url
-
-if db_url.startswith("sqlite"):
-    engine_options["connect_args"] = {"check_same_thread": False}
-else:
-    # PostgreSQL production connection pool configuration
-    engine_options["pool_size"] = settings.db_pool_size
-    engine_options["max_overflow"] = settings.db_max_overflow
-    engine_options["pool_pre_ping"] = True
-    engine_options["pool_recycle"] = 1800
-
-engine = create_engine(db_url, **engine_options)
-
-
 def ensure_schema() -> None:
-    """Create the schema and apply additive migrations without deleting data."""
-    from app.core.security import hash_password
+    """Create all tables and non-destructively ensure new required columns exist."""
+    from app.models.action import Action
+    from app.models.audit_log import AuditLog
+    from app.models.customer import Customer
+    from app.models.dispute import Dispute
+    from app.models.document import Document
     from app.models.merchant import Merchant
+    from app.models.reconciliation import ReconciliationRecord
+    from app.models.recovery_case import RecoveryCase
+    from app.models.risk_assessment import RiskAssessment
+    from app.models.settlement import Settlement
+    from app.models.transaction import Transaction
     from app.models.user import User
+    from app.models.webhook_event import WebhookEvent
 
     Base.metadata.create_all(bind=engine)
+
     additions = {
         "transactions": {
             "merchant_id": "INTEGER DEFAULT 1",
@@ -57,12 +71,30 @@ def ensure_schema() -> None:
         },
         "recovery_cases": {
             "merchant_id": "INTEGER DEFAULT 1",
+            "exception_type": "VARCHAR(50) DEFAULT 'settlement_hold'",
+            "dispute_id": "INTEGER",
+            "settlement_id": "INTEGER",
+            "reconciliation_record_id": "INTEGER",
             "recovery_probability": "NUMERIC(4, 3)",
             "priority": "VARCHAR(20)",
             "next_best_action": "VARCHAR(100)",
         },
         "documents": {
             "merchant_id": "INTEGER DEFAULT 1",
+            "dispute_id": "INTEGER",
+            "file_name": "VARCHAR(255)",
+            "file_size_bytes": "INTEGER",
+        },
+        "disputes": {
+            "priority": "VARCHAR(50) DEFAULT 'MEDIUM'",
+            "deadline_status": "VARCHAR(50) DEFAULT 'unknown'",
+            "contest_status": "VARCHAR(50) DEFAULT 'draft'",
+            "contest_summary": "VARCHAR(2000)",
+            "contest_submitted_at": "DATETIME",
+            "submission_error": "VARCHAR(255)",
+            "evidence_completeness": "VARCHAR(50) DEFAULT 'incomplete'",
+            "validation_status": "VARCHAR(50) DEFAULT 'pending'",
+            "validation_notes": "VARCHAR(2000)",
         },
         "audit_logs": {
             "merchant_id": "INTEGER DEFAULT 1",
@@ -110,6 +142,5 @@ def ensure_schema() -> None:
                 session.add(default_user)
 
             session.commit()
-        except Exception as e:
+        except Exception:
             session.rollback()
-            logger.debug("Default merchant seed note: %s", e)

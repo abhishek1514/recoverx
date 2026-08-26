@@ -66,11 +66,54 @@ export const api = {
   // Dashboard
   getDashboardSummary: () => request('/api/dashboard/summary'),
 
+  // Unified Revenue Exceptions (Phase 5)
+  getRevenueExceptions: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.type) query.append('type', params.type);
+    if (params.status) query.append('status', params.status);
+    if (params.priority) query.append('priority', params.priority);
+    if (params.min_amount) query.append('min_amount', params.min_amount);
+    if (params.deadline_status) query.append('deadline_status', params.deadline_status);
+    const qs = query.toString();
+    return request('/api/exceptions' + (qs ? `?${qs}` : ''));
+  },
+  getRevenueExceptionMetrics: () => request('/api/exceptions/metrics'),
+  getRevenueExceptionDetail: (id) => request(`/api/exceptions/${id}`),
+
   // Cases
   getCases: () => request('/api/cases'),
   getCase: (caseId) => request(`/api/cases/${caseId}`),
   analyzeTransaction: (transactionId) =>
     request(`/api/cases/analyze/${transactionId}`, { method: 'POST' }),
+
+  // Disputes & Chargebacks (Phase 3)
+  getDisputes: (status) => request('/api/disputes' + (status ? `?status=${status}` : '')),
+  getDispute: (id) => request(`/api/disputes/${id}`),
+  getDisputeEvidence: (id) => request(`/api/disputes/${id}/evidence`),
+  uploadDisputeEvidence: (id, formData) =>
+    request(`/api/disputes/${id}/evidence`, { method: 'POST', body: formData }),
+  prepareDisputeContest: (id, payload) =>
+    request(`/api/disputes/${id}/prepare-contest`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  approveDisputeContest: (id, payload) =>
+    request(`/api/disputes/${id}/approve-contest`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  getDisputeTimeline: (id) => request(`/api/disputes/${id}/timeline`),
+  getDisputeMetrics: () => request('/api/disputes/metrics/summary'),
+
+  // Settlements & Reconciliation (Phase 4)
+  getSettlements: (status) => request('/api/settlements' + (status ? `?status=${status}` : '')),
+  getSettlement: (id) => request(`/api/settlements/${id}`),
+  getSettlementExceptions: () => request('/api/settlements/exceptions'),
+  getReconciliationRecords: (status) => request('/api/settlements/reconciliation' + (status ? `?status=${status}` : '')),
+  getSettlementMetrics: () => request('/api/settlements/metrics'),
+  syncSettlement: (id) => request(`/api/settlements/${id}/sync`, { method: 'POST' }),
+  syncAllSettlements: (lookbackHours) =>
+    request('/api/settlements/sync-all' + (lookbackHours ? `?lookback_hours=${lookbackHours}` : ''), { method: 'POST' }),
 
   // Transactions & Interactive Test Mode
   getTransactions: () => request('/api/transactions'),
@@ -216,4 +259,14 @@ export const api = {
     onProgress({ step: 7, text: 'Success! ₹2,61,000 At-Risk Revenue Recovered/Unlocked.' });
     return currentCase.id;
   },
+
+  // Webhook / Payment-State Recovery
+  resyncWebhookPayment: (transactionId) =>
+    request(`/api/webhooks/recovery/${transactionId}/sync`, { method: 'POST' }),
+
+  triggerWebhookRecoveryDetect: () =>
+    request('/api/webhooks/recovery/detect', { method: 'POST' }),
+
+  getWebhookRecoveryMismatches: () =>
+    request('/api/webhooks/recovery/mismatches'),
 };

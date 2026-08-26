@@ -48,6 +48,13 @@ class Settings(BaseModel):
     openai_api_key: str = Field(default="")
     openai_model: str = Field(default="")
 
+    # Phase 4 Settlement Synchronization Settings
+    settlement_sync_enabled: bool = Field(default=True)
+    settlement_sync_interval_seconds: int = Field(default=300)
+    settlement_sync_lookback_hours: int = Field(default=72)
+    settlement_sync_batch_size: int = Field(default=20)
+    reconciliation_variance_threshold: Decimal = Field(default=Decimal("10.00"))
+
     def get_high_value_threshold(self, currency: str | None = None) -> Decimal:
         """Return the application-configured business threshold for a currency."""
         curr = (currency or "INR").upper().strip()
@@ -58,23 +65,13 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
-    origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    inr_thresh = Decimal(os.getenv("HIGH_VALUE_THRESHOLD_INR", os.getenv("HIGH_VALUE_THRESHOLD", "100000")))
-    usd_thresh = Decimal(os.getenv("HIGH_VALUE_THRESHOLD_USD", "10000"))
-    eur_thresh = Decimal(os.getenv("HIGH_VALUE_THRESHOLD_EUR", "10000"))
-    gbp_thresh = Decimal(os.getenv("HIGH_VALUE_THRESHOLD_GBP", "10000"))
-    sgd_thresh = Decimal(os.getenv("HIGH_VALUE_THRESHOLD_SGD", "15000"))
-
-    thresholds_map = {
-        "INR": inr_thresh,
-        "USD": usd_thresh,
-        "EUR": eur_thresh,
-        "GBP": gbp_thresh,
-        "SGD": sgd_thresh,
-        "AUD": Decimal(os.getenv("HIGH_VALUE_THRESHOLD_AUD", "15000")),
-        "CAD": Decimal(os.getenv("HIGH_VALUE_THRESHOLD_CAD", "15000")),
-    }
-
+    """Return cached application settings loaded from environment variables."""
+    origins_env = os.getenv("CORS_ORIGINS")
+    cors_origins = (
+        [origin.strip() for origin in origins_env.split(",") if origin.strip()]
+        if origins_env
+        else ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
     return Settings(
         app_name=os.getenv("APP_NAME", "RecoverX API"),
         environment=os.getenv("ENVIRONMENT", "development"),
@@ -82,7 +79,7 @@ def get_settings() -> Settings:
         db_pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
         db_max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        cors_origins=[origin.strip() for origin in origins.split(",") if origin.strip()],
+        cors_origins=cors_origins,
         jwt_secret=os.getenv("JWT_SECRET", "recoverx_default_dev_jwt_secret_change_in_production_32b"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")),
@@ -94,8 +91,11 @@ def get_settings() -> Settings:
         document_retention_days=int(os.getenv("DOCUMENT_RETENTION_DAYS", "90")),
         document_download_secret=os.getenv("DOCUMENT_DOWNLOAD_SECRET", "recoverx_doc_sign_secret_32b"),
         rate_limit_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "120")),
-        high_value_threshold=inr_thresh,
-        high_value_thresholds=thresholds_map,
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_model=os.getenv("OPENAI_MODEL", ""),
+        settlement_sync_enabled=os.getenv("SETTLEMENT_SYNC_ENABLED", "true").lower() in {"true", "1", "yes"},
+        settlement_sync_interval_seconds=int(os.getenv("SETTLEMENT_SYNC_INTERVAL_SECONDS", "300")),
+        settlement_sync_lookback_hours=int(os.getenv("SETTLEMENT_SYNC_LOOKBACK_HOURS", "72")),
+        settlement_sync_batch_size=int(os.getenv("SETTLEMENT_SYNC_BATCH_SIZE", "20")),
+        reconciliation_variance_threshold=Decimal(os.getenv("RECONCILIATION_VARIANCE_THRESHOLD", "10.00")),
     )

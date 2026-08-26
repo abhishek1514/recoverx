@@ -1,5 +1,7 @@
-import logging
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -9,22 +11,22 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import (
-    auth_router,
-    cases_router,
-    customers_router,
-    dashboard_router,
-    payments_router,
-    webhooks_router,
-)
+from app.api.auth import router as auth_router
+from app.api.cases import router as cases_router
+from app.api.customers import router as customers_router
+from app.api.dashboard import router as dashboard_router
+from app.api.disputes import router as disputes_router
+from app.api.exceptions import router as exceptions_router
+from app.api.payments import router as payments_router
+from app.api.settlements import router as settlements_router
+from app.api.webhooks import router as webhooks_router
 from app.core.config import get_settings
-from app.database.connection import engine, ensure_schema
+from app.database.connection import ensure_schema
 from app.database.session import SessionLocal
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.workers.durable_queue import webhook_queue
 from app.workers.tasks import process_razorpay_webhook
-import app.models  # noqa: F401  Ensures all SQLAlchemy models are registered.
 
 settings = get_settings()
 logging.basicConfig(
@@ -123,8 +125,11 @@ def health_ready() -> dict[str, str]:
 
 # 4. Include Routers
 app.include_router(auth_router)
+app.include_router(exceptions_router)
 app.include_router(payments_router)
 app.include_router(cases_router)
+app.include_router(disputes_router)
+app.include_router(settlements_router)
 app.include_router(customers_router)
 app.include_router(dashboard_router)
 app.include_router(webhooks_router)

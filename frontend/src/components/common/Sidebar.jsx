@@ -8,7 +8,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       {/* Brand & Toggle Header */}
       <div className="sidebar-header">
-        <Link to="/dashboard" className="sidebar-brand">
+        <Link to="/exceptions" className="sidebar-brand">
           <div className="brand-logo">RX</div>
           {!collapsed && (
             <div className="brand-text">
@@ -33,12 +33,39 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         <div className="nav-section-label">{!collapsed && 'RECOVERY AGENT'}</div>
 
         <NavLink
+          to="/exceptions"
+          className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+          title="Revenue Exceptions"
+        >
+          <span className="nav-icon">🚨</span>
+          {!collapsed && <span className="nav-label">Revenue Exceptions</span>}
+        </NavLink>
+
+        <NavLink
           to="/dashboard"
           className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
           title="Dashboard"
         >
           <span className="nav-icon">🏠</span>
           {!collapsed && <span className="nav-label">Dashboard</span>}
+        </NavLink>
+
+        <NavLink
+          to="/disputes"
+          className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+          title="Disputes & Chargebacks"
+        >
+          <span className="nav-icon">⚖️</span>
+          {!collapsed && <span className="nav-label">Disputes & Chargebacks</span>}
+        </NavLink>
+
+        <NavLink
+          to="/settlements"
+          className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+          title="Settlements & Recon"
+        >
+          <span className="nav-icon">🏦</span>
+          {!collapsed && <span className="nav-label">Settlements & Recon</span>}
         </NavLink>
 
         <NavLink
@@ -60,62 +87,65 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         </NavLink>
 
         <NavLink
-          to="/pay"
+          to="/transactions/new"
           className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-          title="Test Payment"
+          title="Simulate Transaction"
         >
-          <span className="nav-icon">🧪</span>
-          {!collapsed && <span className="nav-label">Test Payment</span>}
+          <span className="nav-icon">⚡</span>
+          {!collapsed && <span className="nav-label">Simulate Transaction</span>}
         </NavLink>
-
-        <div className="sidebar-divider" />
-
-        <div className="nav-section-label">{!collapsed && 'PREFERENCES'}</div>
 
         <NavLink
-          to="/settings"
+          to="/pay"
           className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-          title="Settings"
+          title="Razorpay Checkout"
+        >
+          <span className="nav-icon">🛒</span>
+          {!collapsed && <span className="nav-label">Razorpay Checkout</span>}
+        </NavLink>
+
+        {/* Developer / Operations Tools Toggle */}
+        <div className="nav-divider" />
+        <div className="nav-section-label">{!collapsed && 'OPERATIONS'}</div>
+
+        <button
+          type="button"
+          className="sidebar-link dev-tools-toggle"
+          onClick={() => setDevToolsOpen(!devToolsOpen)}
+          title="Operational Tools"
         >
           <span className="nav-icon">⚙️</span>
-          {!collapsed && <span className="nav-label">Settings</span>}
-        </NavLink>
+          {!collapsed && (
+            <>
+              <span className="nav-label">Operations Tools</span>
+              <span className="toggle-chevron">{devToolsOpen ? '▾' : '▸'}</span>
+            </>
+          )}
+        </button>
+
+        {devToolsOpen && !collapsed && (
+          <div className="dev-tools-submenu">
+            <NavLink
+              to="/settings"
+              className={({ isActive }) => `submenu-link ${isActive ? 'active' : ''}`}
+            >
+              System Health & Diagnostics
+            </NavLink>
+          </div>
+        )}
       </nav>
 
-      {/* Bottom Developer Tools Box */}
+      {/* Footer Info */}
       <div className="sidebar-footer">
         {!collapsed ? (
-          <div className="dev-tools-box">
-            <button
-              type="button"
-              className="dev-tools-toggle"
-              onClick={() => setDevToolsOpen(!devToolsOpen)}
-            >
-              <span>🛠️ Developer / Test Tools</span>
-              <span style={{ fontSize: '0.7rem' }}>{devToolsOpen ? '▲' : '▼'}</span>
-            </button>
-            {devToolsOpen && (
-              <div className="dev-tools-content">
-                <p className="dev-tools-desc">
-                  Simulation tools for manual high-value & cross-border test scenarios.
-                </p>
-                <Link to="/transactions/new" className="dev-tools-link">
-                  + Manual Test Analyzer
-                </Link>
-              </div>
-            )}
+          <div className="footer-status">
+            <span className="status-indicator online" />
+            <span className="status-text">Razorpay Test Mode Active</span>
           </div>
         ) : (
-          <Link
-            to="/transactions/new"
-            className="sidebar-link dev-icon-link"
-            title="Developer / Test Simulation Tools"
-          >
-            <span className="nav-icon">🛠️</span>
-          </Link>
+          <span className="status-indicator online dot-only" title="Online" />
         )}
       </div>
     </aside>
   );
 }
-

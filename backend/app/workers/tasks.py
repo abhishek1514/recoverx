@@ -11,8 +11,11 @@ from app.models.audit_log import AuditLog
 from app.models.customer import Customer
 from app.models.transaction import Transaction
 from app.models.webhook_event import WebhookEvent
+from app.services.dispute_parser import parse_and_normalize_dispute
 from app.services.razorpay_service import RazorpayService
 from app.services.recovery_service import analyze_transaction
+from app.services.settlement_parser import parse_and_normalize_settlement
+from app.services.settlement_sync_service import SettlementSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +55,44 @@ def process_razorpay_webhook(event_id: str) -> None:
         db.commit()
 
         payload = json.loads(webhook_event.payload or "{}")
+        event_type = webhook_event.event_type or ""
+
+        # 1. Dispute Webhook Routing (P0)
+        if event_type.startswith("payment.dispute."):
+            parse_and_normalize_dispute(
+                payload=payload,
+                event_type=event_type,
+                event_id=event_id,
+                db=db,
+                merchant_id=1,
+            )
+            webhook_event.status = "processed"
+            _audit(db, event_id, "webhook_processed", f"Dispute event {event_type} processed successfully.")
+            db.commit()
+            logger.info("Processed Razorpay dispute webhook event %s (%s)", event_id, event_type)
+            return
+
+        # 2. Settlement Webhook Routing (P0)
+        if event_type.startswith("settlement."):
+            parse_and_normalize_settlement(
+                payload=payload,
+                event_type=event_type,
+                event_id=event_id,
+                db=db,
+                merchant_id=1,
+            )
+            webhook_event.status = "processed"
+            _audit(db, event_id, "webhook_processed", f"Settlement event {event_type} processed successfully.")
+            db.commit()
+            logger.info("Processed Razorpay settlement webhook event %s (%s)", event_id, event_type)
+            return
+
+        # 3. Payment & Order Webhook Routing (Standard Ingestion)
         service = RazorpayService()
         payment = service.payment_entity(payload)
-        if not webhook_event.event_type.startswith("payment.") or payment is None:
+        if not (event_type.startswith("payment.") or event_type.startswith("order.")) or payment is None:
             webhook_event.status = "ignored"
-            _audit(db, event_id, "webhook_ignored", "Unsupported event type or no payment entity.")
+            _audit(db, event_id, "webhook_ignored", f"Unsupported event type {event_type} or no payment entity.")
             db.commit()
             return
 
@@ -136,5 +172,25 @@ def process_razorpay_webhook(event_id: str) -> None:
             db.rollback()
         logger.exception("Razorpay webhook worker failed for event %s", event_id)
         raise
+    finally:
+        db.close()
+
+
+def sync_settlements_job(merchant_id: int = 1) -> dict[str, Any]:
+    """Background worker job for periodic settlement synchronization from Razorpay."""
+    db = SessionLocal()
+    try:
+        service = SettlementSyncService()
+        return service.sync_settlements(merchant_id=merchant_id, db=db)
+    finally:
+        db.close()
+
+
+def sync_single_settlement_job(settlement_id: int, merchant_id: int = 1) -> None:
+    """Background worker job for single settlement re-synchronization."""
+    db = SessionLocal()
+    try:
+        service = SettlementSyncService()
+        service.sync_settlement_by_id(settlement_id=settlement_id, merchant_id=merchant_id, db=db)
     finally:
         db.close()

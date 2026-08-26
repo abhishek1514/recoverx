@@ -28,7 +28,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.startswith("/health") or path.startswith("/api/webhooks/razorpay"):
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         cutoff = now - self.window_seconds
 
