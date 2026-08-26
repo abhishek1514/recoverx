@@ -55,12 +55,52 @@ class Settings(BaseModel):
     settlement_sync_batch_size: int = Field(default=20)
     reconciliation_variance_threshold: Decimal = Field(default=Decimal("10.00"))
 
+    # Phase 10 Production Infrastructure Settings
+    db_pool_timeout: float = Field(default=30.0)
+    db_pool_recycle: int = Field(default=1800)
+    object_storage_provider: str = Field(default="local")
+    s3_bucket: str = Field(default="")
+    s3_region: str = Field(default="us-east-1")
+    s3_endpoint_url: str = Field(default="")
+    s3_access_key_id: str = Field(default="")
+    s3_secret_access_key: str = Field(default="")
+    rate_limit_backend: str = Field(default="memory")
+    redis_url: str = Field(default="")
+
     def get_high_value_threshold(self, currency: str | None = None) -> Decimal:
         """Return the application-configured business threshold for a currency."""
         curr = (currency or "INR").upper().strip()
         if curr in self.high_value_thresholds:
             return self.high_value_thresholds[curr]
         return self.high_value_threshold
+
+    def validate_production_environment(self) -> None:
+        """Validate required production configurations without exposing sensitive secret values."""
+        if self.environment.lower() != "production":
+            return
+
+        missing = []
+        if not self.database_url or self.database_url.startswith("sqlite"):
+            missing.append("DATABASE_URL (Managed PostgreSQL required in production)")
+        if not self.jwt_secret or self.jwt_secret == "recoverx_default_dev_jwt_secret_change_in_production_32b":
+            missing.append("JWT_SECRET (Cryptographically secure production key required)")
+        if not self.razorpay_key_id:
+            missing.append("RAZORPAY_KEY_ID")
+        if not self.razorpay_key_secret:
+            missing.append("RAZORPAY_KEY_SECRET")
+        if not self.razorpay_webhook_secret:
+            missing.append("RAZORPAY_WEBHOOK_SECRET")
+        if not self.cors_origins or "*" in self.cors_origins:
+            missing.append("CORS_ORIGINS (Explicit trusted frontend domains required, wildcard '*' rejected)")
+        if self.object_storage_provider == "s3" and not self.s3_bucket:
+            missing.append("S3_BUCKET (Required when OBJECT_STORAGE_PROVIDER=s3)")
+        if self.rate_limit_backend == "redis" and not self.redis_url:
+            missing.append("REDIS_URL (Required when RATE_LIMIT_BACKEND=redis)")
+
+        if missing:
+            raise ValueError(
+                f"Missing or invalid required production configuration:\n - " + "\n - ".join(missing)
+            )
 
 
 @lru_cache
@@ -78,6 +118,8 @@ def get_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", "sqlite:///./recoverx.db"),
         db_pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
         db_max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        db_pool_timeout=float(os.getenv("DB_POOL_TIMEOUT", "30.0")),
+        db_pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         cors_origins=cors_origins,
         jwt_secret=os.getenv("JWT_SECRET", "recoverx_default_dev_jwt_secret_change_in_production_32b"),
@@ -98,4 +140,12 @@ def get_settings() -> Settings:
         settlement_sync_lookback_hours=int(os.getenv("SETTLEMENT_SYNC_LOOKBACK_HOURS", "72")),
         settlement_sync_batch_size=int(os.getenv("SETTLEMENT_SYNC_BATCH_SIZE", "20")),
         reconciliation_variance_threshold=Decimal(os.getenv("RECONCILIATION_VARIANCE_THRESHOLD", "10.00")),
+        object_storage_provider=os.getenv("OBJECT_STORAGE_PROVIDER", "local").lower().strip(),
+        s3_bucket=os.getenv("S3_BUCKET", "").strip(),
+        s3_region=os.getenv("S3_REGION", "us-east-1").strip(),
+        s3_endpoint_url=os.getenv("S3_ENDPOINT_URL", "").strip(),
+        s3_access_key_id=os.getenv("S3_ACCESS_KEY_ID", "").strip(),
+        s3_secret_access_key=os.getenv("S3_SECRET_ACCESS_KEY", "").strip(),
+        rate_limit_backend=os.getenv("RATE_LIMIT_BACKEND", "memory").lower().strip(),
+        redis_url=os.getenv("REDIS_URL", "").strip(),
     )

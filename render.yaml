@@ -7,7 +7,7 @@
 # =========================================================================
 
 services:
-  # 1. RecoverX FastAPI Web Service (API & Ingestion)
+  # 1. RecoverX FastAPI Web Service (API Gateway & Webhook Ingestion)
   - type: web
     name: recoverx-api
     runtime: python
@@ -24,8 +24,18 @@ services:
         fromDatabase:
           name: recoverx-postgres
           property: connectionString
+      - key: DB_POOL_SIZE
+        value: "20"
+      - key: DB_MAX_OVERFLOW
+        value: "30"
+      - key: DB_POOL_TIMEOUT
+        value: "30.0"
+      - key: DB_POOL_RECYCLE
+        value: "1800"
+      - key: JWT_SECRET
+        generateValue: true # Render automatically generates a cryptographically secure 256-bit string
       - key: RAZORPAY_KEY_ID
-        sync: false # Set in Render Dashboard: rzp_test_...
+        sync: false # Set in Render Dashboard: rzp_test_... or rzp_live_...
       - key: RAZORPAY_KEY_SECRET
         sync: false # Set in Render Dashboard
       - key: RAZORPAY_WEBHOOK_SECRET
@@ -34,10 +44,24 @@ services:
         sync: false # Set in Render Dashboard (Optional)
       - key: OPENAI_MODEL
         value: gpt-4o-mini
-      - key: JWT_SECRET
-        generateValue: true # Render automatically generates a cryptographically secure 256-bit string
       - key: CORS_ORIGINS
-        sync: false # Set in Render Dashboard to your Vercel URL (e.g. https://recoverx.vercel.app)
+        sync: false # Set in Render Dashboard to your explicit Vercel URL (e.g. https://recoverx.vercel.app)
+      - key: RATE_LIMIT_BACKEND
+        value: redis # Distributed rate limiting
+      - key: REDIS_URL
+        sync: false # Managed Redis connection string (e.g. redis://red-xxxx:6379)
+      - key: OBJECT_STORAGE_PROVIDER
+        value: s3 # Cloud Object Storage
+      - key: S3_BUCKET
+        sync: false # S3 Bucket name
+      - key: S3_REGION
+        sync: false # S3 Region (e.g. us-east-1, ap-south-1)
+      - key: S3_ENDPOINT_URL
+        sync: false # Optional: for MinIO, Cloudflare R2, or Wasabi
+      - key: S3_ACCESS_KEY_ID
+        sync: false # S3 IAM Access Key
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false # S3 IAM Secret Key
       - key: WEBHOOK_TOLERANCE_SECONDS
         value: "300"
       - key: RATE_LIMIT_PER_MINUTE
@@ -47,7 +71,7 @@ services:
       - key: HIGH_VALUE_THRESHOLD_USD
         value: "10000"
 
-  # 2. RecoverX Dedicated Background Worker Service
+  # 2. RecoverX Dedicated Background Worker Service (Daemon)
   - type: worker
     name: recoverx-worker
     runtime: python
@@ -63,6 +87,16 @@ services:
         fromDatabase:
           name: recoverx-postgres
           property: connectionString
+      - key: DB_POOL_SIZE
+        value: "10"
+      - key: DB_MAX_OVERFLOW
+        value: "20"
+      - key: DB_POOL_TIMEOUT
+        value: "30.0"
+      - key: DB_POOL_RECYCLE
+        value: "1800"
+      - key: JWT_SECRET
+        sync: false
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
@@ -71,14 +105,27 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: JWT_SECRET
+      - key: RATE_LIMIT_BACKEND
+        value: redis
+      - key: REDIS_URL
+        sync: false
+      - key: OBJECT_STORAGE_PROVIDER
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
         sync: false
 
-# 3. Managed PostgreSQL Database
+# 3. Managed PostgreSQL Database Cluster
 databases:
   - name: recoverx-postgres
     region: oregon
     plan: standard
     databaseName: recoverx
     user: recoverx_admin
-

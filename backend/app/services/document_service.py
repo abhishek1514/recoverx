@@ -17,6 +17,11 @@ from app.core.config import get_settings
 from app.core.security import create_signed_document_token, verify_signed_document_token
 from app.models.audit_log import AuditLog
 from app.models.document import Document
+from app.services.object_storage import (
+    ObjectStorageProvider,
+    generate_tenant_object_key,
+    get_object_storage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +44,14 @@ BLOCKED_EXTENSIONS = {
 
 
 class DocumentService:
-    def __init__(self, storage_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        storage_dir: Path | None = None,
+        storage_provider: ObjectStorageProvider | None = None,
+    ) -> None:
         self.storage_dir = storage_dir or STORAGE_DIR
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.storage = storage_provider or get_object_storage()
 
     def scan_file_for_malware(self, content: bytes) -> None:
         """Malware scanning extension hook (e.g. ClamAV / VirusTotal integration)."""
@@ -117,20 +127,18 @@ class DocumentService:
         merchant_id: int = 1,
         document_type: str = "invoice",
     ) -> Document:
-        """Store uploaded file with UUID name in private storage and record in database."""
+        """Store uploaded file with tenant-isolated UUID name in object storage and record in database."""
         ext = self.validate_file(filename, content_type, len(content), content)
-        unique_filename = f"{uuid.uuid4().hex}{ext}"
-        target_path = self.storage_dir / unique_filename
+        object_key = generate_tenant_object_key(merchant_id=merchant_id, filename=filename, doc_type=document_type)
 
-        with open(target_path, "wb") as f:
-            f.write(content)
+        # Upload to configured storage provider (S3 or local)
+        self.storage.upload(object_key, content, content_type=content_type)
 
-        relative_reference = f"documents/{unique_filename}"
         doc = Document(
             merchant_id=merchant_id,
             recovery_case_id=recovery_case_id,
             document_type=document_type,
-            reference=relative_reference,
+            reference=object_key,
             status="available",
         )
         db.add(doc)
@@ -143,7 +151,7 @@ class DocumentService:
                     entity_type="recovery_case",
                     entity_id=str(recovery_case_id),
                     event_type="document_uploaded",
-                    details=f"Document '{document_type}' uploaded securely (ref: {relative_reference}).",
+                    details=f"Document '{document_type}' uploaded securely (ref: {object_key}).",
                 )
             )
 
@@ -152,7 +160,7 @@ class DocumentService:
             doc.id,
             merchant_id,
             recovery_case_id,
-            relative_reference,
+            object_key,
         )
         return doc
 
@@ -177,14 +185,24 @@ class DocumentService:
                 detail="Invalid or expired download token.",
             )
 
-        filename = os.path.basename(doc.reference or "")
-        file_path = self.storage_dir / filename
-        if not file_path.exists():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Physical document not found.")
-
-        _, ext = os.path.splitext(filename.lower())
+        ref = doc.reference or ""
+        _, ext = os.path.splitext(ref.lower())
         media_type = "application/pdf" if ext == ".pdf" else f"image/{ext.replace('.', '')}"
-        return file_path, media_type
+
+        # If object exists locally in storage_dir
+        local_path = self.storage_dir / os.path.basename(ref)
+        if local_path.exists():
+            return local_path, media_type
+
+        # Otherwise download from storage provider to local cache file
+        try:
+            content, ct = self.storage.download(ref)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(local_path, "wb") as f:
+                f.write(content)
+            return local_path, ct or media_type
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Physical document not found.")
 
     def cleanup_expired_documents(self, db: Session, retention_days: int | None = None) -> int:
         """Clean up documents older than retention period according to retention policy."""
@@ -199,13 +217,13 @@ class DocumentService:
         deleted_count = 0
         for doc in expired_docs:
             if doc.reference:
-                filename = os.path.basename(doc.reference)
-                file_path = self.storage_dir / filename
-                if file_path.exists():
+                self.storage.delete(doc.reference)
+                local_path = self.storage_dir / os.path.basename(doc.reference)
+                if local_path.exists():
                     try:
-                        file_path.unlink()
+                        local_path.unlink()
                     except OSError as e:
-                        logger.warning("Failed to delete expired file %s: %s", file_path, e)
+                        logger.warning("Failed to delete local cached file %s: %s", local_path, e)
 
             db.add(
                 AuditLog(

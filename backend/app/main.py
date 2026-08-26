@@ -25,6 +25,8 @@ from app.database.connection import ensure_schema
 from app.database.session import SessionLocal
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.services.object_storage import get_object_storage
+from app.services.rate_limiter import get_rate_limiter
 from app.workers.durable_queue import webhook_queue
 from app.workers.tasks import process_razorpay_webhook
 
@@ -38,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.validate_production_environment()
     ensure_schema()
     webhook_queue.set_handler(process_razorpay_webhook)
     await webhook_queue.start()
@@ -99,28 +102,69 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 @app.get("/health", tags=["health"])
 @app.get("/health/live", tags=["health"])
 def health_live() -> dict[str, str]:
-    """Process liveness probe."""
+    """Process liveness probe (checks process state only, does not depend on DB/Redis)."""
     return {"status": "ok", "service": settings.app_name, "environment": settings.environment}
 
 
 @app.get("/health/ready", tags=["health"])
-def health_ready() -> dict[str, str]:
-    """Readiness probe checking database connectivity and queue health."""
+def health_ready() -> JSONResponse:
+    """Readiness probe checking database connectivity, durable queue, Redis, and Object Storage."""
+    # 1. Database Health Check
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
-        return {
-            "status": "ready",
-            "database": "connected",
-            "durable_queue": "active",
-            "service": settings.app_name,
-        }
     except Exception as exc:
-        logger.error("Health readiness check failed: %s", exc)
+        logger.error("Health readiness check failed (Database): %s", exc)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "unhealthy", "error": "Database connectivity check failed"},
         )
+
+    # 2. Rate Limiting Backend Health Check (when Redis configured)
+    if (settings.rate_limit_backend or "memory").lower() == "redis":
+        try:
+            limiter = get_rate_limiter()
+            if not limiter.check_health():
+                logger.error("Health readiness check failed (Redis Rate Limiter)")
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"status": "unhealthy", "error": "Redis rate limiter connectivity check failed"},
+                )
+        except Exception as exc:
+            logger.error("Health readiness check failed (Redis Rate Limiter): %s", exc)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"status": "unhealthy", "error": "Redis rate limiter connectivity check failed"},
+            )
+
+    # 3. Object Storage Health Check (when S3 configured)
+    if (settings.object_storage_provider or "local").lower() == "s3":
+        try:
+            storage = get_object_storage()
+            if not storage.check_health():
+                logger.error("Health readiness check failed (Object Storage)")
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"status": "unhealthy", "error": "Cloud object storage connectivity check failed"},
+                )
+        except Exception as exc:
+            logger.error("Health readiness check failed (Object Storage): %s", exc)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"status": "unhealthy", "error": "Cloud object storage connectivity check failed"},
+            )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "status": "ready",
+            "database": "connected",
+            "durable_queue": "active",
+            "rate_limiter": settings.rate_limit_backend,
+            "object_storage": settings.object_storage_provider,
+            "service": settings.app_name,
+        },
+    )
 
 
 # 4. Include Routers
