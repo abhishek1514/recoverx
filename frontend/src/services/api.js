@@ -90,6 +90,18 @@ export const api = {
     return data;
   },
 
+  signup: async (account) => {
+    const data = await request('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(account),
+    });
+    if (data.access_token) {
+      localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    }
+    return data;
+  },
+
   getMe: () => request('/api/auth/me'),
 
   logout: () => {

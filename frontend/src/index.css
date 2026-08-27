@@ -869,3 +869,5 @@ a {
 .login-submit:disabled { cursor: wait; opacity: .7; }
 .login-error { margin-bottom: 1rem; padding: .75rem; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-bg); color: #fecaca; font-size: .9rem; }
 .sidebar-logout { width: 100%; margin-top: .75rem; border: 0; background: transparent; cursor: pointer; text-align: left; }
+.auth-switch { margin-top: 1.25rem; color: var(--text-secondary); font-size: .85rem; text-align: center; }
+.auth-switch a { font-weight: 700; }

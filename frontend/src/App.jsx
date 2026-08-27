@@ -16,6 +16,7 @@ import PaymentCheckout from './pages/PaymentCheckout';
 import PaymentStatus from './pages/PaymentStatus';
 import Settings from './pages/Settings';
 import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 
 const ACCESS_TOKEN_KEY = 'recoverx_access_token';
 
@@ -57,6 +58,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={authenticated ? <Navigate to="/dashboard" replace /> : <LoginPage onAuthenticated={() => setAuthenticated(true)} />} />
+      <Route path="/signup" element={authenticated ? <Navigate to="/dashboard" replace /> : <SignupPage onAuthenticated={() => setAuthenticated(true)} />} />
       <Route element={<ProtectedLayout authenticated={authenticated} onLogout={logout} />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/exceptions" element={<RevenueExceptions />} />
