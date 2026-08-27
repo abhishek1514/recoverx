@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, onLogout }) {
   const [devToolsOpen, setDevToolsOpen] = useState(false);
 
   return (
@@ -145,6 +145,10 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         ) : (
           <span className="status-indicator online dot-only" title="Online" />
         )}
+        <button type="button" className="sidebar-link sidebar-logout" onClick={onLogout} title="Sign out">
+          <span className="nav-icon">↪</span>
+          {!collapsed && <span className="nav-label">Sign out</span>}
+        </button>
       </div>
     </aside>
   );

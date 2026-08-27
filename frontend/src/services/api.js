@@ -2,7 +2,35 @@
  * RecoverX Centralized Production API Client
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const ACCESS_TOKEN_KEY = 'recoverx_access_token';
+const USER_KEY = 'recoverx_user';
+
+function clearStoredAuthentication() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+function notifyAuthenticationRequired() {
+  clearStoredAuthentication();
+  window.dispatchEvent(new Event('recoverx:authentication-required'));
+}
+
+async function verifyCurrentSession() {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!token) {
+    notifyAuthenticationRequired();
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) notifyAuthenticationRequired();
+  } catch (_) {
+    // A transient network failure is not proof that the local JWT has expired.
+  }
+}
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -12,7 +40,7 @@ async function request(endpoint, options = {}) {
     defaultHeaders['Content-Type'] = 'application/json';
   }
 
-  const token = localStorage.getItem('recoverx_access_token');
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
@@ -33,7 +61,13 @@ async function request(endpoint, options = {}) {
         const errorData = await response.json();
         errorDetail = errorData.detail || errorDetail;
       } catch (_) {}
-      throw new Error(errorDetail);
+      const error = new Error(errorDetail);
+      error.status = response.status;
+      if (response.status === 401) {
+        if (endpoint === '/api/auth/me') notifyAuthenticationRequired();
+        else if (endpoint !== '/api/auth/login') void verifyCurrentSession();
+      }
+      throw error;
     }
     return await response.json();
   } catch (error) {
@@ -50,8 +84,8 @@ export const api = {
       body: JSON.stringify(credentials),
     });
     if (data.access_token) {
-      localStorage.setItem('recoverx_access_token', data.access_token);
-      localStorage.setItem('recoverx_user', JSON.stringify(data.user));
+      localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     }
     return data;
   },
@@ -59,8 +93,7 @@ export const api = {
   getMe: () => request('/api/auth/me'),
 
   logout: () => {
-    localStorage.removeItem('recoverx_access_token');
-    localStorage.removeItem('recoverx_user');
+    clearStoredAuthentication();
   },
 
   // Dashboard

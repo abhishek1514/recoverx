@@ -159,7 +159,9 @@ class S3ObjectStorageProvider(ObjectStorageProvider):
 
     def upload(self, key: str, content: bytes, content_type: str | None = None) -> str:
         client = self._get_client()
-        extra_args: dict[str, Any] = {"ServerSideEncryption": "AES256"}
+        extra_args: dict[str, Any] = {}
+        if not self.settings.s3_endpoint_url:
+            extra_args["ServerSideEncryption"] = "AES256"
         if content_type:
             extra_args["ContentType"] = content_type
 

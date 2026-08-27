@@ -98,8 +98,8 @@ def _case_response(db: Session, recovery_case: RecoveryCase) -> CaseAnalysisRead
     missing_info = json.loads(assessment.missing_information or "[]") if assessment else []
     rev_at_risk = recovery_case.amount_at_risk or Decimal("0.00")
     rec_prob = recovery_case.recovery_probability or (Decimal(str(assessment.confidence)) if assessment and assessment.confidence is not None else Decimal("0.000"))
-    nba = recovery_case.next_best_action or (assessment.suggested_action if assessment else "REQUEST_INFORMATION")
-    act_reason = assessment.suggested_action if assessment else "Deterministic rule evaluation"
+    nba = recovery_case.next_best_action or "REQUEST_INFORMATION"
+    act_reason = (assessment.rationale if assessment and assessment.rationale else "Deterministic rule evaluation")
     analyzed_ts = assessment.created_at if assessment and assessment.created_at else (recovery_case.created_at or datetime.now(UTC))
 
     return CaseAnalysisRead(
