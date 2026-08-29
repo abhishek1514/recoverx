@@ -1,227 +1,822 @@
-# RecoverX — AI Revenue Recovery Agent
+RecoverX — AI-Assisted Revenue Recovery Agent
 
-RecoverX is an autonomous, AI-assisted revenue recovery agent designed to detect and resolve settlement friction for international and high-value payments. It operates alongside Razorpay to identify revenue at risk, estimate recovery probability, recommend next-best actions, collect missing documents, perform deterministic reconciliation, and assist operations teams through structured merchant reviews.
+RecoverX is a revenue recovery operations platform designed to help merchants identify, prioritize, analyze, and resolve revenue exceptions across payments, settlements, reconciliation, and disputes.
 
----
+1. Core Business Workflow
 
-## 1. System Architecture
+Revenue Event
+     ↓
+Validation
+     ↓
+Idempotency
+     ↓
+Durable Persistence
+     ↓
+Background Processing
+     ↓
+Exception Detection
+     ↓
+Recovery Case
+     ↓
+Risk Assessment
+     ↓
+Next Best Action
+     ↓
+Merchant Action
+     ↓
+Resolution
+     ↓
+Audit Trail
 
-```text
-                                  +---------------------------------------+
-                                  |       Razorpay Test Gateway           |
-                                  |   (Checkout Modal & Webhooks)         |
-                                  +-------------------+-------------------+
-                                                      |
-                                                      | Webhook POST /api/webhooks/razorpay
-                                                      v
-+-----------------------------+   HTTP / API   +-----------------------------------+
-|      Vercel Frontend        | -------------> |     Render Web API (FastAPI)      |
-|  (React + Vite Merchant UI) | <------------- |  - Auth & Security Middlewares    |
-+-----------------------------+                |  - Timing-Safe HMAC & Replay Guard|
-                                               |  - Deterministic Intelligence     |
-                                               +-----------------+-----------------+
-                                                                 |
-                                       +-------------------------+-------------------------+
-                                       |                                                   |
-                                       v                                                   v
-                        +------------------------------+                    +------------------------------+
-                        |   Render Background Worker   |                    |      Managed PostgreSQL      |
-                        |   - Durable Queue Consumer   | <----------------> |    - Tenant Isolation        |
-                        |   - Out-of-Order Resilient   |                    |    - Additive Migrations     |
-                        |   - Dead-Letter Queue (DLQ)  |                    |    - Connection Pooling      |
-                        +------------------------------+                    +------------------------------+
-                                       |
-                                       v
-                        +------------------------------+
-                        |  OpenAI API (Non-Auth / PII) |
-                        |  - Guarded Executive Summaries|
-                        +------------------------------+
-```
+Current status: RecoverX is actively developed and has a verified local Docker-based environment. Production deployment and some end-to-end integrations are still pending verification.
 
----
+2. What RecoverX Does
 
-## 2. Security & Zero Secret Exposure Policy
+RecoverX brings revenue-recovery operations into one merchant-facing workspace.
 
-> [!IMPORTANT]
-> **Zero Secret Leakage Guarantee**:
-> - API keys, secrets, private keys, and passwords must **NEVER** be committed into Git, written into Dockerfiles, or printed in logs.
-> - Secrets are exclusively injected at runtime through hosting environment settings (Render Dashboard & Vercel Dashboard).
-> - Default configuration is strictly **Razorpay Test Mode** (`rzp_test_...`). Live payments and credentials are never automated.
+It is designed to:
 
-### Required Environment Variable Names
+Detect revenue exceptions.
 
-| Variable Name | Required / Optional | Description | Configured Where |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | **Required** | PostgreSQL connection string (`postgresql://...`) | Render Dashboard |
-| `RAZORPAY_KEY_ID` | **Required** | Razorpay Test Key ID (`rzp_test_...`) | Render Dashboard |
-| `RAZORPAY_KEY_SECRET` | **Required** | Razorpay Test Key Secret | Render Dashboard |
-| `RAZORPAY_WEBHOOK_SECRET`| **Required** | Razorpay Webhook HMAC secret | Render Dashboard |
-| `JWT_SECRET` | **Required** | 256-bit cryptographically secure string for JWT signing | Render Dashboard |
-| `CORS_ORIGINS` | **Required** | Allowed frontend origin URL (e.g. `https://your-app.vercel.app`) | Render Dashboard |
-| `WEBHOOK_TOLERANCE_SECONDS`| Optional | Replay attack tolerance window in seconds (default: `300`) | Render Dashboard |
-| `OPENAI_API_KEY` | Optional | OpenAI API key for non-authoritative summaries | Render Dashboard |
-| `OPENAI_MODEL` | Optional | OpenAI Model name (e.g. `gpt-4o-mini`) | Render Dashboard |
-| `VITE_API_BASE_URL` | **Required** (Frontend) | Public Render backend URL (e.g. `https://recoverx-api.onrender.com`)| Vercel Dashboard |
+Identify revenue at risk.
 
----
+Prioritize cases by urgency.
 
-## 3. Automated Deployment Pipeline
+Assess recovery risk/probability.
 
-RecoverX includes cross-platform automated deployment and preflight verification scripts.
+Recommend next-best actions.
 
-### Windows (PowerShell)
-```powershell
-# Run full automated validation, tests, frontend build, and smoke check
-.\scripts\deploy.ps1 -TargetUrl "https://your-backend.onrender.com"
-```
+Manage recovery cases.
 
-### Linux / macOS / CI (Bash)
-```bash
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh "https://your-backend.onrender.com"
-```
+Support disputes and chargebacks.
 
-The automated pipeline performs:
-1. Preflight tooling verification (`git`, `python`, `npm`).
-2. Repository secret leak scan.
-3. Backend unit, integration, and security test suite (78 tests).
-4. Frontend production asset compilation (`npm run build`).
-5. Deployment manifest integrity checks (`render.yaml`, `vercel.json`, `Dockerfile`, `docker-compose.yml`).
-6. Automated post-deployment smoke test (`scripts/smoke_test.py`).
+Track settlements and reconciliation issues.
 
----
+Store recovery evidence/documents.
 
-## 4. Cloud Platform Deployment Steps
+Maintain an audit trail.
 
-### Step A: Deploy Backend & Worker on Render
+Integrate with Razorpay Test Mode.
 
-1. Log in to [Render Dashboard](https://dashboard.render.com/).
-2. Click **New +** $\rightarrow$ **Blueprint**.
-3. Connect your RecoverX repository.
-4. Render will automatically detect [`render.yaml`](file:///d:/real%20think/recoveryX/recoverx/render.yaml) and configure:
-   - **`recoverx-api`**: FastAPI Web Service (`uvicorn app.main:app --host 0.0.0.0 --port $PORT`)
-   - **`recoverx-worker`**: Background Worker (`python -m app.workers.worker`)
-   - **`recoverx-postgres`**: Managed PostgreSQL Database
-5. Under Environment Variables for `recoverx-api` and `recoverx-worker`, enter your secure credentials:
-   - `RAZORPAY_KEY_ID`: `rzp_test_...`
-   - `RAZORPAY_KEY_SECRET`: `...`
-   - `RAZORPAY_WEBHOOK_SECRET`: `...`
-   - `CORS_ORIGINS`: `https://<YOUR_VERCEL_DOMAIN>.vercel.app`
-   - `OPENAI_API_KEY`: *(Optional)*
-6. Click **Apply**. Render will provision PostgreSQL, build the services, and launch the API and Worker.
+The goal is to turn a revenue exception into a structured recovery action.
 
-### Step B: Deploy Frontend on Vercel
+3. System Architecture
 
-1. Log in to [Vercel Dashboard](https://vercel.com/).
-2. Click **Add New Project** and select the RecoverX repository.
-3. In Project Settings:
-   - **Root Directory**: `frontend`
-   - **Framework Preset**: `Vite`
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-4. Under **Environment Variables**, add:
-   - `VITE_API_BASE_URL`: `https://<YOUR_RENDER_BACKEND_URL>.onrender.com`
-5. Click **Deploy**. Vercel will build and publish the production frontend.
+Local / Staging
 
-### Step C: Configure Razorpay Test Webhook
+                    ┌─────────────────────────┐
+                    │   Razorpay Test Mode    │
+                    │ Checkout + Webhooks      │
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+┌─────────────────────┐   ┌──────────────────────────┐
+│ React + Vite        │──▶│ RecoverX FastAPI API     │
+│ Merchant Frontend   │◀──│ Authentication           │
+└─────────────────────┘   │ Validation               │
+                          │ Business APIs             │
+                          └───────────┬──────────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+             ┌────────────┐   ┌────────────┐   ┌────────────┐
+             │ PostgreSQL │   │   Redis    │   │   MinIO    │
+             │ Database   │   │ Rate Limit │   │ Documents  │
+             └─────┬──────┘   └────────────┘   └────────────┘
+                   │
+                   ▼
+             ┌────────────────────┐
+             │ RecoverX Worker    │
+             │ Background Jobs    │
+             └─────────┬──────────┘
+                       ▼
+                 Recovery Processing
 
-1. Open your [Razorpay Dashboard](https://dashboard.razorpay.com/) in **Test Mode**.
-2. Navigate to **Settings → Webhooks → Add Webhook**.
-3. Enter:
-   - **Webhook URL**: `https://<YOUR_RENDER_BACKEND_URL>.onrender.com/api/webhooks/razorpay`
-   - **Secret**: (must match `RAZORPAY_WEBHOOK_SECRET` configured in Render)
-   - **Active Events**: `payment.captured`, `payment.failed`, `order.paid`
-4. Save the webhook.
+Production Target
 
----
+The repository also contains deployment configuration/documentation for a cloud setup using Vercel for the frontend and Render for the FastAPI API, worker, and managed PostgreSQL.
 
-## 5. Post-Deployment Verification & Smoke Testing
+Production documentation describes the target architecture; it should only be marked deployed after independent verification.
 
-Run the automated smoke test suite against your deployed environment:
+4. Frontend
 
-```bash
-python scripts/smoke_test.py --url https://<YOUR_RENDER_BACKEND_URL>.onrender.com
-```
+Technology:
 
-The smoke test verifies:
-- `GET /health/live` (Process liveness)
-- `GET /health/ready` (Database pool connectivity & queue status)
-- Production security headers (`nosniff`, `DENY`, `X-Request-ID`)
-- Unauthorized request rejection (HTTP 401 on protected endpoints)
-- Merchant login & tenant-scoped dashboard metrics query
+React
 
----
+Vite
 
-## 6. Concurrency & Load Testing (k6)
+Main product areas:
 
-RecoverX includes a standardized k6 concurrency benchmark in [`load_tests/k6_load_test.js`](file:///d:/real%20think/recoveryX/recoverx/load_tests/k6_load_test.js).
+/login
+/signup
+/dashboard
+/exceptions
+/disputes
+/settlements
+/payments
+/needs-attention
+/transactions/new
+/pay
+/settings
 
-### Run Load Benchmarks
-```bash
-# Benchmark local staging environment
-k6 run load_tests/k6_load_test.js -e BASE_URL=http://localhost:8000
+Dashboard
 
-# Benchmark deployed staging backend
-k6 run load_tests/k6_load_test.js -e BASE_URL=https://<YOUR_RENDER_BACKEND_URL>.onrender.com
-```
+Provides a unified view of revenue recovery operations, including:
 
-### Load Testing Scenarios & SLA Metrics
-The test benchmarks **10**, **50**, and **100 concurrent Virtual Users (VUs)** and measures:
-- **Webhook ACK Latency**: $p(95) < 200\text{ms}$ (asynchronous ingestion).
-- **Liveness & Readiness**: $p(95) < 100\text{ms}$.
-- **Throughput**: Requests Per Second (RPS) sustained under peak concurrency.
-- **Error Rate**: Strict threshold $< 1.0\%$.
+Revenue at Risk
 
----
+Cases Needing Action
 
-## 7. Resilience & Failure Verification
+Recovered Revenue
 
-| Failure Scenario | Built-in Protection Mechanism | Verification Command / Step |
-| :--- | :--- | :--- |
-| **Worker Process Crash** | Render automatically restarts process; database state is preserved without data loss | Kill worker process $\rightarrow$ restart worker $\rightarrow$ picks up pending events |
-| **Transient Webhook Failure** | Durable queue exponential backoff retry (up to 3 retries) | Ingest event with simulated transient DB lock |
-| **Poison / Fatal Webhook Event**| Automatic Dead-Letter Queue (`DLQ`) transition with audit log | Inspect `webhook_events.status == 'dead_letter'` |
-| **Duplicate Webhook Delivery** | Database unique constraint on `event_id` returns fast HTTP 200 `duplicate: true` | Send same webhook payload twice |
-| **Replay Attack** | Timestamps older than `WEBHOOK_TOLERANCE_SECONDS` rejected with HTTP 400 | Run `test_06_webhook_replay_protection_rejects_stale_event` |
-| **Invalid HMAC Signature** | Server-side timing-safe comparison (`hmac.compare_digest`) returns HTTP 401 | Run `test_invalid_signature` |
-| **OpenAI Outage / Timeout** | Graceful fallback retaining deterministic recovery decisions and next-best actions | Run `test_ai_graceful_fallback_preserves_deterministic_recovery` |
-| **Cross-Tenant Breach Attempt** | Strict `verify_merchant_ownership` asserts resource ownership; returns HTTP 403 | Run `test_04_cross_merchant_case_access_forbidden` |
+Recovery Likelihood
 
----
+Revenue Exceptions
 
-## 8. Local Development & Staging Setup
+Exceptions can be prioritized by:
 
-### Local SQLite Development
-```powershell
-# 1. Backend setup
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+Critical
 
-# 2. Frontend setup (in a new terminal)
-cd frontend
-npm install
-npm run dev
-```
+High
 
-### Local Staging via Docker Compose (PostgreSQL + API + Worker + Frontend)
-```bash
-docker-compose up --build
-```
+Medium
 
----
+Low
 
-## 9. Production Readiness Checklist
+Categories include:
 
-- [x] Zero hardcoded secrets in source files, Dockerfiles, or Git history.
-- [x] All 78 backend unit, integration, and security tests passing.
-- [x] Frontend production bundle compiles cleanly with Vite (`npm run build`).
-- [x] Multi-tenant isolation verified with cross-merchant rejection tests.
-- [x] PostgreSQL connection pooling and non-destructive schema migrations configured.
-- [x] Replay attack defense and timing-safe webhook HMAC verification active.
-- [x] Dedicated background worker process entrypoint implemented.
-- [x] Private document storage with binary magic-byte inspection and signed URLs.
-- [x] PII scrubbing and untrusted content encapsulation guardrails active.
-- [x] Automated deployment scripts (`deploy.ps1`, `deploy.sh`), smoke tests, and k6 load tests created.
+Disputes
+
+Settlements
+
+Reconciliation
+
+Payment State
+
+Recovery Cases
+
+Cases can contain:
+
+Amount at Risk
+
+Priority
+
+Risk assessment
+
+Recovery probability
+
+Status/stage
+
+Next Best Action
+
+Evidence
+
+Resolution history
+
+5. Authentication
+
+Current authentication:
+
+Email + Password
+       ↓
+Authentication API
+       ↓
+JWT Access Token
+       ↓
+Authenticated Frontend Session
+
+Frontend auth storage:
+
+recoverx_access_token
+recoverx_user
+
+Protected application routes require authentication.
+
+Merchant Signup
+
+Merchant signup has been implemented:
+
+/signup
+   ↓
+Business / Merchant Name
+Full Name
+Email
+Password
+Confirm Password
+   ↓
+Create Merchant
+   ↓
+Create User
+   ↓
+Link User → Merchant
+   ↓
+Hash Password
+   ↓
+Issue JWT
+   ↓
+Dashboard
+
+The backend controls merchant_id, role, and user ID.
+
+Current Authentication Status
+
+Email/password login: implemented.
+
+Merchant signup: implemented.
+
+JWT authentication: implemented.
+
+Merchant-specific authorization: implemented.
+
+Google OAuth: not yet implemented.
+
+6. Multi-Tenant Merchant Isolation
+
+Merchant is the tenant boundary.
+
+Merchant
+ ├── Users
+ ├── Customers
+ ├── Transactions
+ ├── Recovery Cases
+ ├── Disputes
+ ├── Settlements
+ ├── Documents
+ └── Audit Logs
+
+Users are linked to merchants through:
+
+users.merchant_id → merchants.id
+
+Merchant-scoped backend operations must use the authenticated user's merchant context.
+
+The frontend must never be trusted to choose which merchant's data can be accessed.
+
+7. Backend
+
+Technology:
+
+Python
+
+FastAPI
+
+SQLAlchemy
+
+Pydantic
+
+Major areas:
+
+Authentication
+Dashboard
+Recovery Cases
+Payments
+Disputes
+Settlements
+Reconciliation
+Webhooks
+Health / Diagnostics
+
+The backend handles authentication, authorization, merchant isolation, payment/order APIs, webhook validation, idempotent event handling, recovery-case processing, risk/recovery analysis, document authorization/storage, and audit logging.
+
+8. Durable Webhook Processing
+
+External Webhook
+      ↓
+FastAPI
+      ↓
+Signature Verification
+      ↓
+Idempotency Check
+      ↓
+Persist Event
+      ↓
+Durable Queue
+      ↓
+Fast Response
+      ↓
+Background Worker
+      ↓
+Business Processing
+
+Financial webhook processing should not depend on an in-memory queue.
+
+Duplicate Webhooks
+
+Repeated delivery of the same event should produce one logical processing result rather than duplicate financial records.
+
+Security
+
+Webhook processing includes:
+
+HMAC signature validation.
+
+Replay protection.
+
+Idempotency.
+
+Merchant/resource authorization.
+
+9. Background Worker
+
+The worker is separate from the API.
+
+Responsibilities:
+
+Consume durable events.
+
+Process pending webhook events.
+
+Normalize external events.
+
+Update transactions.
+
+Create/update recovery cases.
+
+Run background analysis.
+
+Update processing state.
+
+Write audit information.
+
+API
+ ↓
+Durable Event
+ ↓
+Worker
+ ↓
+Recovery Processing
+
+The worker is not the HTTP API server.
+
+10. Risk & Next-Best-Action Layer
+
+RecoverX evaluates recovery context and produces:
+
+Risk Score
+Priority
+Amount at Risk
+Recovery Probability
+Next Best Action
+
+Example action concepts include:
+
+SUBMIT_REPRESENTMENT
+REQUEST_INVOICE
+MERCHANT_REVIEW
+
+AI-assisted analysis must not bypass authentication, authorization, merchant isolation, financial validation, idempotency, or deterministic business rules.
+
+11. PostgreSQL Data Model
+
+Core entities include:
+
+merchants
+users
+customers
+transactions
+recovery_cases
+documents
+risk_assessments
+actions
+validation_results
+webhook_events
+audit_logs
+
+Revenue operations also include:
+
+disputes
+settlements
+reconciliation
+
+Important relationship:
+
+Merchant
+   ↓
+User
+   ↓
+merchant_id
+
+12. Redis
+
+Redis is used for distributed API rate limiting.
+
+Request
+   ↓
+FastAPI
+   ↓
+Redis Rate Limiter
+   ↓
+Allow / Reject
+
+13. Secure Document Storage
+
+Local environment:
+
+MinIO
+
+Production target:
+
+S3-compatible object storage
+
+Flow:
+
+Document Upload
+      ↓
+Authentication
+      ↓
+Merchant Authorization
+      ↓
+File Validation
+      ↓
+Object Storage
+      ↓
+Recovery Case
+
+Private documents should not be exposed as public objects.
+
+14. Audit Trail
+
+Important recovery operations are intended to remain traceable.
+
+Examples:
+
+CASE_ANALYZED
+EVIDENCE_SUBMITTED
+MERCHANT_APPROVED
+SETTLEMENT_SYNCED
+RECONCILIATION_FLAGGED
+DISPUTE_CONTESTED
+
+15. Razorpay Integration
+
+RecoverX integrates with Razorpay Test Mode.
+
+RecoverX
+   ↓
+Create Razorpay Test Order
+   ↓
+Razorpay Standard Checkout
+   ↓
+Test Payment Event
+   ↓
+Razorpay Webhook
+   ↓
+RecoverX Webhook Processing
+
+The checkout has successfully opened in the current local environment.
+
+No real-money payment is required for the local demo.
+
+Successful checkout alone does not prove the entire webhook → worker → recovery-case chain; that chain must be verified separately.
+
+16. Security & Secrets
+
+Secrets must never be committed to Git.
+
+Examples:
+
+RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET
+RAZORPAY_WEBHOOK_SECRET
+JWT_SECRET
+DATABASE_URL
+OPENAI_API_KEY
+
+Local secrets belong in:
+
+.env
+
+Templates belong in:
+
+.env.example
+
+Never put real credentials into .env.example.
+
+Never:
+
+Commit .env.
+
+Log passwords.
+
+Log JWT tokens.
+
+Commit Razorpay secrets.
+
+Put backend secrets in frontend JavaScript.
+
+Trust client-provided merchant IDs.
+
+Expose private documents publicly.
+
+17. Docker Local Environment
+
+Services:
+
+recoverx-api
+recoverx-worker
+recoverx-postgres
+recoverx-redis
+recoverx-minio
+recoverx-minio-init
+
+Start:
+
+docker compose up -d --build
+
+Check:
+
+docker compose ps
+
+API logs:
+
+docker compose logs --tail=100 backend-api
+
+Worker logs:
+
+docker compose logs --tail=100 backend-worker
+
+Health:
+
+http://localhost:8000/health/live
+
+Frontend:
+
+http://localhost:5173
+
+18. Testing & Verification
+
+Current reported verification
+
+After merchant signup implementation:
+
+Focused signup tests:       4/4 passed
+Full backend suite:         172 tests passed
+Frontend production build:  passed
+Docker Compose config:      passed
+Docker services:            healthy during verification
+.env:                       not staged or committed
+
+Automated tests do not by themselves prove production readiness.
+
+Production still requires independent verification of:
+
+Cloud deployment.
+
+Production database.
+
+Production Redis.
+
+Production object storage.
+
+Production Razorpay webhook delivery.
+
+HTTPS/CORS.
+
+Monitoring.
+
+Backups.
+
+Rollback.
+
+Full production E2E.
+
+19. Production Deployment
+
+The repository contains configuration/documentation for:
+
+Backend / Worker
+
+Target:
+
+Render
+
+Services:
+
+recoverx-api
+recoverx-worker
+Managed PostgreSQL
+
+Frontend
+
+Target:
+
+Vercel
+
+Razorpay Test Webhook
+
+Endpoint:
+
+/api/webhooks/razorpay
+
+Production deployment should only be marked complete after the deployed environment has been independently verified.
+
+20. Load & Resilience Testing
+
+The repository contains tooling for scenarios including:
+
+Concurrent users.
+
+Webhook latency.
+
+API liveness/readiness.
+
+Error-rate measurement.
+
+Worker crash recovery.
+
+Duplicate webhook delivery.
+
+Replay protection.
+
+Invalid webhook signatures.
+
+Cross-tenant access attempts.
+
+AI timeout/fallback behavior.
+
+These are engineering verification tools, not user-facing product features.
+
+21. Current Project Status
+
+Implemented / Locally Verified
+
+React + Vite frontend.
+
+FastAPI backend.
+
+PostgreSQL.
+
+Background worker.
+
+JWT authentication.
+
+Merchant isolation.
+
+Merchant signup.
+
+Durable webhook processing.
+
+Idempotent webhook handling.
+
+Redis rate limiting.
+
+MinIO object storage.
+
+Recovery cases.
+
+Risk/recovery analysis components.
+
+Dispute workflows.
+
+Settlement workflows.
+
+Reconciliation workflows.
+
+Audit logging.
+
+Razorpay Test Mode checkout.
+
+172 backend tests reported passing after signup work.
+
+Frontend production build.
+
+Docker Compose configuration.
+
+Local Docker services.
+
+Pending / Not Yet Implemented
+
+Google OAuth login.
+
+Production cloud deployment verification.
+
+Full production Razorpay webhook E2E verification.
+
+Production monitoring and alerting.
+
+Production backup/restore verification.
+
+Browser verification of signup if the previously observed /signup “Not Found” issue still occurs.
+
+22. Development Rules for AI Coding Agents
+
+If an AI coding agent works on RecoverX:
+
+Read this README.
+
+Inspect the actual repository.
+
+Inspect relevant models.
+
+Inspect API routes.
+
+Inspect services.
+
+Inspect the frontend API client.
+
+Inspect authentication dependencies.
+
+Inspect tests.
+
+Check git status.
+
+Check recent commits.
+
+Then:
+
+Discover
+   ↓
+Understand
+   ↓
+Plan
+   ↓
+Minimal Change
+   ↓
+Test
+   ↓
+Security Check
+   ↓
+Docker / E2E Check
+   ↓
+Git Diff
+   ↓
+Commit
+
+Do not:
+
+Rewrite working architecture without a reason.
+
+Create duplicate authentication systems.
+
+Create duplicate API clients.
+
+Bypass merchant authorization.
+
+Trust frontend tenant identifiers.
+
+Store plaintext passwords.
+
+Use floats for financial amounts.
+
+Bypass webhook validation.
+
+Bypass idempotency.
+
+Commit .env.
+
+Invent undocumented APIs without inspecting the code.
+
+The actual source code is the final source of truth.
+
+If this README conflicts with the implementation, inspect the repository and report the discrepancy instead of silently assuming the README is correct.
+
+23. Roadmap
+
+Current Local Product
+        ↓
+Browser Signup Verification
+        ↓
+Google OAuth
+        ↓
+Production Deployment
+        ↓
+Production Razorpay Webhook Verification
+        ↓
+Monitoring + Backups
+        ↓
+Production SaaS Hardening
+
+24. Product Demo Flow
+
+For a product demonstration:
+
+Login
+  ↓
+Dashboard
+  ↓
+Revenue Exception
+  ↓
+Recovery Case
+  ↓
+Risk / Amount at Risk
+  ↓
+Next Best Action
+  ↓
+Merchant Review
+  ↓
+Resolution
+
+Technical architecture can be shown separately:
+
+Frontend
+   ↓
+FastAPI
+   ↓
+PostgreSQL / Redis / Object Storage
+   ↓
+Durable Queue
+   ↓
+Worker
+   ↓
+Recovery Processing
