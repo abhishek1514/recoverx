@@ -16,6 +16,12 @@ Validates:
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+
+
 import concurrent.futures
 import hashlib
 import hmac
@@ -29,16 +35,21 @@ from typing import Any
 
 import httpx
 
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 API_BASE = "http://localhost:8000"
 MINIO_ENDPOINT = "http://localhost:9000"
-WEBHOOK_SECRET = "recoverx_staging_webhook_secret"
+
+
+WEBHOOK_SECRET = os.environ["RAZORPAY_WEBHOOK_SECRET"]
 JWT_SECRET = "recoverx_staging_jwt_secret_32_bytes_min"
 
 results: dict[str, Any] = {}
 
 
-def generate_webhook_signature(body_bytes: bytes, secret: str = WEBHOOK_SECRET) -> str:
+def generate_webhook_signature(body_bytes: bytes) -> str:
     """Compute HMAC-SHA256 signature for Razorpay webhook payloads."""
+    secret = os.environ["RAZORPAY_WEBHOOK_SECRET"]
     return hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
 
 
